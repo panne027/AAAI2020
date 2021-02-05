@@ -101,7 +101,7 @@ AbsError, pass, engrpm, EGRkgph, MSPhum, EngTq**)
 		- *(name, minValue, maxValue, intervalWidth, indexInInputFile)*
 		- If length for each Q dimension is > 5 (as split by ';'), then it contains explicit intervals separated by '#' and divide start and end with '-'
 		- For these explicit intervals, the *intervals* property is filled with instances of *EventInterval* (using start and end of each interval)
-	- Not a loop is run to read all data rows in the array *allReadings*:
+	- A while loop is run to read all data rows in the array *allReadings*:
 		- For each element of array, an instance of `EngineReading` is created
 		- Stores 10 values: *(Iteration, year, month, day , Latitude, Longitude, RelativeError, NOxTHeoryppm, AbsError, pass, patternDimensionValues)*
 		- The property *patternDimensionValues* is actually an array of string with length = *dimensionsNum* (Storing all Q dimension values at the end)
@@ -116,7 +116,7 @@ AbsError, pass, engrpm, EGRkgph, MSPhum, EngTq**)
 	- There are two options to finding and saving anomalous windows:
 		- if *anomalyPercentageThreshold* < 0 | **findAllAnomalousWindowsWithStandardThreshold():**
 			- Created an emtpy LinkedHashMap<String, `TemporalWindow`> call *anomalousWindows*
-			- A loop is run covering all windowsfrom start to end of readings:
+			- A loop is run covering all windows from start to end of readings:
 				- To be considered for anomalous / divergent window, should pass criteria:
 					- 1. does not contain any value where SCRoutppm>3000
 					- 2. start and end of window should be in the same year, month, day and pass
@@ -156,7 +156,7 @@ AbsError, pass, engrpm, EGRkgph, MSPhum, EngTq**)
 	- Updated *usedMemoryByDataAndWindowsAndIndex* variable if *nowUsed* > *usedMemory* till now
 	- `mineCooccurrencePatterns` function is called to find co-occurences:
 		- Form an emtpy Hashmap *enumeratedPatternsMap*
-		- *topKFunctionValuePatterns* is an ArrayList to store top 100 pattern in decreasing order of Ripley's K-function value, of tupe `OutputPattern`:
+		- *topKFunctionValuePatterns* is an ArrayList to store top 100 pattern in decreasing order of Ripley's K-function value, of type `OutputPattern`:
 			- Stores 6 values: *pattern*, *patternCount*, *patternWithAnomalyCount*, *anomalyCount*, *distinctPatternWithAnomalyCount*, *kValue*
 		- Instance of `AllStatesGraph` is created to preprocess time-series into state graphs:
 			- Constructor takes in input the number of Q-dimensions and declares an empty ArrayList called *stateGraphs* of type `<HashMap<String,ArrayList<Integer>>>`
@@ -173,87 +173,171 @@ AbsError, pass, engrpm, EGRkgph, MSPhum, EngTq**)
 					- Properties *leavesPatternWithAnomalyCount* & *leavesPatternCount* are int arrays of size = num of Q dimensions, with 0 values assigned
 				- *initialize()* function of this class is called:
 					- creates all nodes and parent-child links in the dimensionsGraph
+					- This basically creates entire lattice to represent all combinations of dimensions in a graph like pattern
 					- *nextTopLevel* = num of Q dimensions - 1 | *nextBottomLevel* = 0
 					- *graphNodes* is an Arraylist, each element being an Arraylist of type `HybridDimensionNode`:
 						- *dimensions*: LinkedHashSet<String>, *superPatternCount*, *parentsNum*, *childrenNum*, *(parents, children)*: ArrayList<HybridDimensionNode>
 						- *isPruned*: (1 if it is pruned by min support threshold | 2 if it is pruned by upper bounds or previously enumerated in another window | 3 if it pruned using both upper bounds and minsupport)
 					- *root* is instantiated as `HybridDimensionNode` and it's *dimensions* property are set to index of Q dimensions, using *setDimensions()*
 
-		**Mining Patterns for windows of all lengths**
-			- Assuming *dimGraph* is organised as a tree actually
-			- for each pattern length
-				- for each anomalous window
-					- for each pattern from log to start of anomalous window
-						- prevent patterns that are outside the bounds of the time-series
-						- Also, prevents patterns from different passes and different rides
-						- *dimGraph.graphNodes* have levels as `{0:nC1, 1:nC2, ..., n-1:nCn}`
-						- for only the singleton patterns i.e. level 0, the function `enumerateSingleton()` is called:
-							- all dimensions of node are added in *includedDimensions*
-							- the singleton patterns are expanded as (name  space_separated_values) in the variable *pattern*
-							- If pattern is already part of *enumeratedPatternsMap*
-								- counts are obtain {0: number of pattern occurrences, 1: number of pattern occurrences with anomalies}
-								- `support = pattern_occurences / all_readings`
-								- If it is below minimum_support, call `pruneAllParents` on that node and return True
-									- WRITE ABOUT FUNCTION HERE
-							- else, pattern has not been enumerated yet
-								- There are two ways of counting the patterns 1) Linear Scan 2) Using State Graphs 
-								- Both return 3 counts [1) count of pattern, 2) count of pattern with anomaly, 3) count of distinct pattern with anomaly]
-									- In `countPatternUsingStateGraphs()`, first gets all occurences of pattern in state graphs using *from* & *from+1*
-										- On each of these occurences, it is compared to entire pattern
-										- In these occurences also find if there is an anomalous window within the lag, and enumerate counts for distinct and normal co-occurence of pattern with the anomalous windows
-								- Store counts in *curDimGraph.leavesPatternCount* and the pattern along with it's counts in *enumeratedPatternsMap*
-								- If support for pattern is > min_support: `calculateKFunction()` else `pruneAllParents()`
-									- NEED TO WRITE ABOUT BOTH OF THESE FUNCTIONS
+	**Mining Patterns for windows of all lengths**
+	- Assuming *dimGraph* is organised as a tree actually
+	- for each pattern length
+		- for each anomalous window
+			- for each pattern from lag to start of anomalous window (as in real situations, affect of features on target might happen after a while)
+				- prevent patterns that are outside the bounds of the time-series
+				- Also, prevents patterns from different passes and different rides
+				- *dimGraph.graphNodes* have levels as `{0:nC1, 1:nC2, ..., n-1:nCn}`
+				- for all of the singleton patterns i.e. level 0, the function `enumerateSingleton()` is called:
+					- all dimensions of node are added in *includedDimensions*
+					- the singleton patterns are expanded as (name  space_separated_values) in the variable *pattern*, using the function `expandSingletonPattern()`
+					- If pattern is already part of *enumeratedPatternsMap*
+						- counts are obtain {0: number of pattern occurrences, 1: number of pattern occurrences with anomalies}
+						- *leavesPatternWithAnomalyCount* & *leavesPatternCount* are updated for that dimension for our **dimgraph** with counts obtained
+						- `support = pattern_occurences / all_readings`
+						- If it is below minimum_support, call `pruneAllParents` on that node and return True
+							- **WRITE ABOUT FUNCTION HERE**
+						- return True
+					- else, pattern has not been enumerated yet
+						- There are two ways of counting the patterns 1) Linear Scan 2) Using State Graphs 
+						- Both return 3 counts [1) count of pattern, 2) count of pattern with anomaly, 3) count of distinct pattern with anomaly]
+							- In `countPatternUsingStateGraphs()`, first gets all occurences of pattern in state graphs using *from* & *from+1*
+								- On each of these occurences, it is compared to entire pattern
+								- In these occurences also find if there is an anomalous window within the lag from the start, and enumerate counts for distinct and normal co-occurence of pattern with the anomalous windows
+								- **MORE DETAILS REQUIRED HERE**
+						- Store counts in *leavesPatternCount* & *leavesPatternWithAnomalyCount* of **curDimGraph** and the pattern along with it's counts in *enumeratedPatternsMap*
+						- If support for pattern is > min_support: `calculateKFunctionAndOutputIfPatternComplies()` else `pruneAllParents()`
+							- **NEED TO WRITE ABOUT LATTER FUNCTION**
 
-		**Pruning**:
-			- After all singleton patterns have been enumerated
-			- Top-dwon traversal is performed, with root going first, all *graphNodes* are iterated one by one at each level starting from root @ *nextTopLevel*
-			- Each node at each level is sent into `enumerate_with_UB_pruning()` till *nextTopLevel* > *nextBottomLevel*
-			- At the same time, each node in bottom-up traversal is sent into `enumerate_with_minsupp_pruning()` @ *nex tBottomLevel*
-			- `enumerate_with_UB_pruning()`:
-				- Takes one node as input
-				- If *ispruned* flag equals 2: pruned by UBmax, not UBmin
-				- If node is root:
-					- `expandPattern()` is called which basically expands all dimension at that node as `name from_to_values \n next_name from_to_values ...`
-					- If *enumeratedPatternsMap* still does not contain expanded pattern of the node
-						- counts are obtained for the expanded pattern with the two options available
-						- pattern is added to *enumeratedPatternsMap*
-						- Also, *curDimGraph.root.superPatternCount* is updated with count[0]
-						- Using *leavesPatternWithAnomalyCount* from the time of enumerating all the singleton patterns, *maxSingletonWithAnomalyCount* is found as max of all dimension
-						- `UBmax = (all_readings/anomalous_windows) * (maxSingletonWithAnomalyCount / pattern_count_for_node)`
-						- if `(UBmax<=kFunctionThreshold)`: means pattern and its descendants cannot exceed K-function threshold so prune them all
-						- else:
-							- UBmax greater than K-function threshold
-							- Calculate pattern_support as `pattern_count / all_readings`
-							- if pattern_support > *patternSupportThreshold*
-								- `calculateKFunctionAndOutputIfPatternComplies()` is called for this pattern to calculate the values of K-function
-									- KFunctionDenominator = pattern_count * anomalous_windows
-									- If KFunctionDenominator>0: `Kvalue = (all_readings * count of pattern with anomaly) / KFunctionDenominator`
-									- Anomalysupport = anomalous_windows / all_readings
-									- patternWithAnomalySupport = count of pattern with anomaly / all_readings
-									- If KValue > kFunctionThreshold: then pattern is added among the output patterns
-										- `confidence = count of distinct pattern with anomaly / pattern_count`
-								- Also, the *superPatternCount* for descendant nodes is updated of the node
+	**Pruning**
+	- After all singleton patterns have been enumerated, it is checked if all parents have been pruned through flag *isAllLevelPruned* (by default is true, unless proved otherwise)
+	- *nextBottomLevel* is increased by one, as singletons have already been processed
+	- While not of *isAllLevelPruned* and *nextBottomLevel* <= *nextTopLevel* (It is not just a one node tree), then we proceed to next steps
+		- Top-down traversal is performed, with root going first
+		- All *graphNodes* are iterated one by one at each level starting from *nextTopLevel* (Which has only one node i.e. root)
+		- A HashMap<String, Integer> is defined called *subsetsJoinSetCountsMap*.
+		- Each node at that *nextToplevel* is sent into `enumerate_with_UB_pruning()`
+		- After this, *nextTopLevel* is decreased by one
+		- If *nextBottomLevel* <= *nextTopLevel*, each node at *nextBottomLevel*, is sent into `enumerate_with_minsupp_pruning()` in bottom-up traversal 
+		- All nodes at *nextBottomLevel* are iterated and passed into this function
+		- Just like at the time of singleton processing, the goal is to find out if all things above *nextBottomLevel* are pruned or not
+		- Increment *nextBottomLevel* by one
+		- `enumerate_with_UB_pruning()`:
+			- Takes one node as input
+			- If *ispruned* flag equals 2: pruned by UBmax, not UBmin
+			- If node is root:
+				- `expandPattern()` is called which basically expands all dimension at that node as (`name from_till_to_all_values \n next_name from_till_to_all_values ...`)
+				- If *enumeratedPatternsMap* still does not contain expanded pattern of the node
+					- counts are obtained for the expanded pattern with the two options available
+					- pattern is added to *enumeratedPatternsMap*
+					- Also, *curDimGraph.root.superPatternCount* is updated with count[0]
+					- Using *leavesPatternWithAnomalyCount* from the time of enumerating all the singleton patterns, *maxSingletonWithAnomalyCount* is found as max of all dimension
+					- `UBmax = (all_readings/anomalous_windows) * (maxSingletonWithAnomalyCount / pattern_count_for_node)`
+					- if `(UBmax<=kFunctionThreshold)`: means pattern and its descendants cannot exceed K-function threshold so prune them all, i.e. just return **DOUBT as no action taken to pruneAll**
 					- else:
-						- pattern already enumerated, do not do anything and return
+						- UBmax greater than K-function threshold
+						- Calculate pattern_support as `pattern_count / all_readings`
+						- If pattern_support > *patternSupportThreshold*
+							- `calculateKFunctionAndOutputIfPatternComplies()` is called for this pattern to calculate the values of K-function
+								- KFunctionDenominator = pattern_count * anomalous_windows
+								- If KFunctionDenominator>0: `Kvalue = (all_readings * count of pattern with anomaly) / KFunctionDenominator`
+								- Anomalysupport = anomalous_windows / all_readings
+								- patternWithAnomalySupport = count of pattern with anomaly / all_readings
+								- If KValue > kFunctionThreshold: then pattern is added among the output patterns
+									- `confidence = count of distinct pattern with anomaly / pattern_count`
+							- Also, the *superPatternCount* for descendant nodes is updated of the node
 				- else:
-					- Node is not root
-					- Check if `node.isPruned` == 1 i.e. through minsupport:
-						- only for nodes that have more than two dimensions (as nodes with two dimensions have children as leaves)
-							- Go through all the children of the node
-								- If any of the children are not pruned by (either of upper bounds)
-									- If for any of child *superPatternCount* < *node.superPatternCount*:
-										- Reassign the child's supperPatternCount to that of the node
-							- return back
+					- root pattern already enumerated, do not do anything and return
+			- else:
+				- Node is not root
+				- Check if `node.isPruned` == 1 i.e. through minsupport:
+					- only for nodes that have more than two dimensions (as nodes with two dimensions have children as leaves)
+						- Go through all the children of the node
+							- If any of the children are not pruned by (either of upper bounds)
+								- If for any of child *superPatternCount* < *node.superPatternCount*:
+									- Reassign the child's supperPatternCount to that of the node
+						- return back
+				- else:
+					- Means node has not been pruned by minsupport or UBmax
+					- Of all dimensions of the node, *maxSingletonWithAnomalyCount* & *minSingletonWithAnomalyCount* are assigned using `curDimGraph.leavesPatternWithAnomalyCount` for all dimensions
+					- Caculation of **UBMax**:
+						- `if(boundWithLeavesOnly==1 || curDimGraph.nextBottomLevel<2)`:
+							- UBMax = (all_readings / anomalous_windows) * (maxSingletonWithAnomalyCount / node.superPatternCount)
+						- else:
+							- *subsetsList* is defined using the function `printAllSizeKSubsets()` and is basically a combination of all *inputdimensions* of size *curDimGraph.nextBottomLevel*
+							- for each of combination in the *subsetsList*
+								- if the combination is present in *subsetsJoinSetCountsMap*:
+									- It's value is compared with *maxJoinCount*, to find max value of all combinations
+								- else:
+									- Combination is not present in *subsetsJoinSetCountsMap*
+									- Find max value among singletons of this combination from *curDimGraph.leavesPatternWithAnomalyCount*
+									- That max value is assigned to *maxJoinCount*
+							- UBMax = (all_readings / anomalous_windows) * (maxJoinCount / node.superPatternCount) 
+					- If (*UBmax* is between less than KfunctionThreshold)
+						- Pattern and it's descendants cannot exceed K-function and thus all should be pruned
+						- `pruneAllDescendants()` is called for that node
+							- **NEED TO WRITE ABOUT BOTH OF THESE FUNCTIONS**
 					- else:
-						- Means node has not been pruned by minsupport or UBmax
-						- Of all dimensions of the node, *maxSingletonWithAnomalyCount* & *minSingletonWithAnomalyCount* are assigned using `curDimGraph.leavesPatternWithAnomalyCount` for all dimensions
-						- Caculation of **UBMax**:
+						- UBmax is greater than K-function threshold
+						- Need to calculate **UBmin**
 							- `if(boundWithLeavesOnly==1 || curDimGraph.nextBottomLevel<2)`:
-								- UBMax = (all_readings / anomalous_windows) * (maxSingletonWithAnomalyCount / node.superPatternCount)
+								- UBmin = (all_readings / anomalous_windows) * (minSingletonWithAnomalyCount / node.superPatternCount) 
 							- else:
 								- *subsetsList* is defined using the function `printAllSizeKSubsets()` and is basically a combination of all *inputdimensions* of size *curDimGraph.nextBottomLevel*
-								- 
+								- for each of combination in the *subsetsList*
+									- if the combination is present in *subsetsJoinSetCountsMap*:
+										- It's value is compared with *minJoinCount*, to find min value of all combinations
+								- UBmin = (all_readings / anomalous_windows) * (minJoinCount / node.superPatternCount)
+						- If UBmin < K-function threshold:
+							- Increase *prunedNodesWithUBmin* by one
+							- Only if dimensions of node > 2 i.e. node does not have singletons as it's children
+								- For all children of the node:
+									- If a child is not pruned by Upper Bounds i.e. (*isPruned* != 2 & 3)
+										- Create a new instance of the child's 
+										- Compare it's *superPatternCount* to *node.superPatternCount* and if smaller, then re-assign former to latter
+						- else:
+							- No pruning took place
+							- Obtain pattern for the node using `expandPattern()` and *includedDimensions*.
+							- If pattern already not enumerated in *enumeratedPatternsMap*
+								- Obtain counts for the pattern using `countPatternUsingStateGraphs()`
+								- Insert counts and pattern in *enumeratedPatternsMap*
+								- Calculate pattern_support = pattern_count / all_readings
+								- If pattern_support > *patternSupportThreshold*:
+									- Calculate kFunction using `calculateKFunctionAndOutputIfPatternComplies()`
+										- **NEED TO WRITE ABOUT BOTH OF THESE FUNCTIONS**
+								- If dimensions of node > 2 i.e. node does not have singletons as it's children
+									- For all children of the node:
+										- If a child is not pruned by Upper Bounds i.e. (*isPruned* != 2 & 3)
+											- Create a new instance of the child's 
+											- Compare it's *superPatternCount* to node's pattern_count and if smaller, then re-assign former to latter
+							- else:
+								- Pattern was not found in the enumerated list:
+								- `pruneDescendantsBecausePreviouslyEnumerated()` on the node:
+									- **NEED TO WRITE ABOUT BOTH OF THESE FUNCTIONS**
+		- `enumerate_with_minsupp_pruning()`:
+			- If node already pruned by min_support (i.e. 1 or 3)
+				- return True
+			- If node already pruned by UB (i.e 2)
+				- return False
+				- **NEED TO UNDERSTAND THE REASONING**
+			- Pattern is expanded like usual for all dimensions included in the node
+			- If pattern not in *enumeratedPatternsMap*:
+				- Count using either of approaches (Linear or stateGraphs)
+				- Put both counts (comma separated) as values and pattern as key in *enumeratedPatternsMap.put*
+				- Also Convert node into comma separated string using `nodeDimensionsToString()`
+				- Store number of pattern occurrences with anomalies and stringified_node in *subsetsJoinSetCountsMap*
+				- Calculate support for pattern, if greater than *patternSupportThreshold*
+					- Call `calculateKFunctionAndOutputIfPatternComplies()`
+				- else:
+					- Call `pruneAllParents()` and return True
+			- else:
+				- Pattern enumerated, obtain it's counts
+				- Convert node into comma separated string using `nodeDimensionsToString()`
+				- Store number of pattern occurrences with anomalies and pattern in *subsetsJoinSetCountsMap*
+				- Calculate support, if < *patternSupportThreshold*
+					- `pruneAllparents()`, then reutn true
+				- else: return False (meaning node not pruned through min_support threshold)
+			
 
 - *Output*:
 	- number of dimensions of Q (variables to be considered)
