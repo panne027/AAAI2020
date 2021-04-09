@@ -2,7 +2,7 @@
 """
 Created on Wed Aug 12 18:59:19 2020
 
-@author: phari
+@author: panne027
 """
 
 import numpy as np
@@ -13,10 +13,9 @@ from scipy.optimize import curve_fit
 import scipy
 from sklearn.metrics import mean_squared_error, mean_absolute_error, mean_poisson_deviance, mean_gamma_deviance, mean_tweedie_deviance
 import random
+
 OBD=pd.read_csv('C:/Users/panne027/UMNME452/Prof.Northrop/Prof.Northrop/100000Datatrain.csv', usecols=["IntakeT","IntakekPa","engrpm","Fuelconskgph","EGRkgph","Airinkgph","SCRinppm","EngTq", 'Wheelspeed', 'Engpwr', 'RailMPa', 'SCRingps','NOxActual', 'EINOxActual',"Anomalyindex5","Tadiab","tinj", 'NOxTheoryppmrefine2','nN2','nO2','pass'])
-T1=OBD.Wheelspeed
-# gt100= OBD[OBD['Wheelspeed'].gt(100)].index
-# print(gt100)
+
 # T=OBD.iloc[51937:51937+60]
 # T=OBD.iloc[7492:7492+60]
 # T=OBD.iloc[1035:1035+60]
@@ -45,7 +44,6 @@ No2=T['nO2'].to_numpy()
 passnumber=T['pass'].to_numpy()
 
 passnumber=pd.Series(passnumber)
-
 
 Anomalyindex=Anomalyindex[~np.isnan(Anomalyindex)].astype(int)
 #Anomalies=pd.read_csv("D:/UMN/Prof.Northrop/NOxModel2/windowpatterns/AnomalousWindows_99895_-1.0_10.0_3.csv")
@@ -78,7 +76,8 @@ windowlength=3
 
 #%%
 # passindex= passnumber[passnumber.isin( [1,5,6,4,3,11,7,12])].index.tolist()
-#%%
+
+#%% Train-Test split based on pass
 
 test=[]
 index=[]
@@ -97,8 +96,8 @@ for k in range(0,len(NOxActual)):
         train.append(k)
     else:
         continue
-#%% Calculations
-
+        
+#%% Feature Terms Calculations
 Vivo= (2*a*np.cos(IVO)+np.sqrt(4*a**2*np.cos(IVO)**2-4*(a**2-l**2)))/2*np.pi*B**2/4
 Tpeak=intakeTlist*(Vivo/Vc)**(gamma-1)
 Ppeak= (Tpeak/intakeTlist)**(gamma/(gamma-1))*intakePlist
@@ -130,7 +129,6 @@ for i in range(len(NOxActual)):
     Tadiab=np.append(Tadiab, np.roots(coeff)[1]+Tpeak[i])
 
 EINOxActual=SCRingps/(Fuelconskgph/3600)
-
 
 #%% kvaluearray
 windows= windows.to_numpy()
@@ -189,7 +187,7 @@ EINOxActuallead[:]=EINOxActual[1:]
 EINOxActuallead=np.append(EINOxActuallead, EINOxActual[len(EINOxActual)-1])
 
 NOxTheoryppmbase=NOxTheoryppm
-#%% Divergent patterns dataset splitting *******
+#%% Divergent patterns dataset splitting 
 npatterns=4
 index1=[]
 patternpoints= [[] for _ in range(npatterns)]
@@ -211,8 +209,7 @@ for i in range(npatterns):
                     patternpoints[i].append(int(pattern1[j]+k))
                     EINOxActualpatterns[i].append(EINOxActuallead[int(pattern1[j]+k)])
                     Tadiabpatterns[i].append(Tadiab[int(pattern1[j]+k)])
-                    tinjpatterns[i].append(tinj[int(pattern1[j]+k)])
-                    
+                    tinjpatterns[i].append(tinj[int(pattern1[j]+k)])             
                 else:
                         continue
 
@@ -232,10 +229,6 @@ random2=random.sample(range(len(notindex)),30000)
 train225=[]
 train225=np.array(notindex)
 train225=train225[random2]
-
-        
-#%%
-
 
 
 #%% notindex plot
