@@ -2,7 +2,7 @@
 """
 Created on Sun Jul 19 21:48:38 2020
 
-@author: phari
+@author: panne027
 """
 #%% Read data
 import numpy as np
@@ -14,14 +14,11 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error, mean_poisso
 
 
 OBD=pd.read_csv('D:/UMN/Prof.Northrop/100000Data.csv', usecols=["IntakeT","IntakekPa","engrpm","Fuelconskgph","EGRkgph","Airinkgph","SCRinppm","EngTq", 'Wheelspeed', 'Engpwr', 'RailMPa', 'SCRingps','NOxActual', 'EINOxActual',"Anomalyindex3","Tadiab","tinj", 'NOxTheoryppm'])
-T1=OBD.Wheelspeed
-# gt100= OBD[OBD['Wheelspeed'].gt(100)].index
-# print(gt100)
 
-# T=OBD.iloc[51937:51937+60]
-T=OBD.iloc[7492:7492+60]
-# T=OBD.iloc[1035:1035+60]
-# T=OBD
+# T=OBD.iloc[51937:51937+60] #Sampleset 1
+T=OBD.iloc[7492:7492+60] #Sampleset 2
+# T=OBD.iloc[1035:1035+60] #Sampleset 3
+# T=OBD 
 # Train=OBD.iloc[:10000]
 
 intakeRPMlist=T['engrpm'].to_numpy()
@@ -43,50 +40,50 @@ Tadiab=T['Tadiab'].to_numpy()
 tinj=T['tinj'].to_numpy()
 NOxTheoryppm=T['NOxTheoryppm'].to_numpy()
 
-
-#Combustion chamber Parameters
+#Combustion chamber Parameters (Cummins ISB6.7 Engine)
 S = 0.124#stroke (m)
 B = 0.107#bore (m)
 a = 0.5*S#crank radius (m) S = 2a
 l = 3.5*a#connecting rod length (m)  l/a = 3-4 for small and medium size engine
-Vdis = (np.pi*B**2)/4 * S;  #cylinder displacement (m^3)6 6.7L
+Vdis = (np.pi*B**2)/4 * S;  #cylinder displacement (m^3) = 6.7L
 
-cr = 17.3#compression ratio
-Ru = 8.31434# Gas constant J/(mole K)
-Vc = Vdis/(cr-1)#clearance volume (m^3)
-gamma=1.35#polytropic ratio/ specific heat ratio
-LHV=42.64e6# Lower Heating Value J/kg
+cr = 17.3 #compression ratio
+Ru = 8.31434 #Gas constant J/(mole K)
+Vc = Vdis/(cr-1) #clearance volume (m^3)
+gamma=1.35 #polytropic ratio/ specific heat ratio
+LHV=42.64e6 # Lower Heating Value J/kg
 nc=0.9; #Combustion Efficiency
 
 IVO=-9 #Degrees ATDC
 
-MW_fuel = 0.19065#kg/mol
-MW_O2 = 0.032#kg/mol
-MW_product = 0.02885#kg/mol
-MW_air = 0.029#kg/mol
+#Molar Mass
+MW_fuel = 0.19065 #kg/mol
+MW_O2 = 0.032 #kg/mol
+MW_product = 0.02885 #kg/mol
+MW_air = 0.029 #kg/mol
 
-#%% Calculations
+#%% NOx Feature Terms Calculations
+Vivo= (2*a*np.cos(IVO)+np.sqrt(4*a**2*np.cos(IVO)**2-4*(a**2-l**2)))/2*np.pi*B**2/4 #Volume at Intake Valve Opening
+Tpeak=intakeTlist*(Vivo/Vc)**(gamma-1) #Peak cylinder temperature
+Ppeak= (Tpeak/intakeTlist)**(gamma/(gamma-1))*intakePlist #Peak cylinder pressure
 
-Vivo= (2*a*np.cos(IVO)+np.sqrt(4*a**2*np.cos(IVO)**2-4*(a**2-l**2)))/2*np.pi*B**2/4
-Tpeak=intakeTlist*(Vivo/Vc)**(gamma-1)
-Ppeak= (Tpeak/intakeTlist)**(gamma/(gamma-1))*intakePlist
-
-eqratio= 14.37/(Airinkgph/(Fuelconskgph))
+eqratio= 14.37/(Airinkgph/(Fuelconskgph)) #equivalence ratio
 
 #intake oxygen concentration
-Exhaustkgph=Airinkgph+Fuelconskgph
-xexh=(0.21*Airinkgph-568/167*0.98*Fuelconskgph)/(Exhaustkgph-EGRkgph)
-xo2=(0.21*Airinkgph+xexh*EGRkgph)/(Airinkgph+EGRkgph+Fuelconskgph)
+Exhaustkgph=Airinkgph+Fuelconskgph #Exhaust gas mass flow rate kg/h
+xexh=(0.21*Airinkgph-568/167*0.98*Fuelconskgph)/(Exhaustkgph-EGRkgph) #mass fraction of O2 in exhaust
+xo2=(0.21*Airinkgph+xexh*EGRkgph)/(Airinkgph+EGRkgph+Fuelconskgph) #mass fraction of O2 in the cylnder
 
 #Injection duration equal to duration of combustion
-fuelinjrate=0.86*7*np.pi*0.00018**2/4*np.sqrt(2*872*(RailMPa*10**6-intakePlist)) #7 holes 0.007" diameter
-tinj=Fuelconskgph/(fuelinjrate*30*intakeRPMlist) #equal to residence time
+fuelinjrate=0.86*7*np.pi*0.00018**2/4*np.sqrt(2*872*(RailMPa*10**6-intakePlist)) #7 holes in nozzle each 0.007" diameter
+tinj=Fuelconskgph/(fuelinjrate*30*intakeRPMlist) #injection duration equal to residence time
 
 #Adiabatic Flame Temperature
 Tadiab=np.array([])
 Nn2=np.array([])
 No2=np.array([])
 
+#Calculating Tadiab for each entry
 for i in range(len(NOxActual)):
     Energytotal=LHV*MW_fuel
     Nair= 14.37*190.649/(eqratio[i]*28.84)
@@ -94,22 +91,21 @@ for i in range(len(NOxActual)):
     No2=np.append(No2, (Nair-94.744)*0.21)
     a1Tadiab=(13.883*0.04453e2 + 12.026*0.02672e2 + Nn2[i]*0.02927e2 + No2[i]*0.03698e2)*Ru
     a2Tadiab2= 0.5*(13.883*0.03140e-1 + 12.026*0.03056e-1 + Nn2[i]*0.1488e-2 + No2[i]*0.06145e-2)*Ru
-    coeff=[a2Tadiab2, a1Tadiab, -Energytotal]
+    coeff=[a2Tadiab2, a1Tadiab, -Energytotal] #From energy balance equation
     Tadiab=np.append(Tadiab, np.roots(coeff)[1]+Tpeak[i])
 
-EINOxActual=SCRingps/(Fuelconskgph/3600)
+EINOxActual=SCRingps/(Fuelconskgph/3600) #Emissions Index NOx Observed in g-NOx/kg-fuel
 
-
-#%%
+#%% Accounting for 1 second lag between NOx Observed and Feature terms (Tadiab, xO2)
 NOxActuallead=[]
 NOxActuallead[:]=NOxActual[1:]
-NOxActuallead=np.append(NOxActuallead,     [len(NOxActual)-1])
+NOxActuallead=np.append(NOxActuallead, NOxActual[len(NOxActual)-1])
 
 EINOxActuallead=[]
 EINOxActuallead[:]=EINOxActual[1:]
 EINOxActuallead=np.append(EINOxActuallead, EINOxActual[len(EINOxActual)-1])
 
-#%% anomalous indices
+#%% Anomalous indices from Divergent Window Co-occurrence Pattern Detection
 Anomalyindex=Anomalyindex[~np.isnan(Anomalyindex)]
 NOxActualrefine=np.array([])
 NOxTheoryrefine=np.array([])
@@ -125,35 +121,29 @@ for i in range(len(Anomalyindex)):
             continue
         
 for k in range(0,len(NOxActual)):
-
     notindex.append(k) if k not in index else index
-        
 
-
-#%%Curve Fit
+#%% Non-Linear Regression using curve_fit function
 def EINOxpredict(X, a, b, c):
     Tadiab, tinj =X
     return a*(Tadiab**b)*(tinj**c)
 
 X=['Tadiab', 'tinj']
 
-p0=25e10, -1.5, 0.5
+p0=25e10, -1.5, 0.5 #initial guess for regression coefficients
 
 fitParams, fitCovar= curve_fit(EINOxpredict, (Tadiab[train], tinj[train]), EINOxActuallead[train], p0, maxfev=1000000)
 print(fitParams)
 print(fitCovar)
+
 EINOxTheory=[]
-EINOxTheory= EINOxpredict((Tadiab[train],tinj[train]), fitParams[0], fitParams[1], fitParams[2])
+EINOxTheory= EINOxpredict((Tadiab[train],tinj[train]), fitParams[0], fitParams[1], fitParams[2]) #Predicted EINOx values
 
-
-#%% Refined prediction
-def EINOxpredict(X, a, b, c):
-    Tadiab, tinj =X
-    return a*(Tadiab**b)*(tinj**c)
+#%% Refined prediction using partition-based methods
 
 X=['Tadiab', 'tinj']
-positiveindex=[num for num in index if NOxTheoryppm[num]>=NOxActual[num]]
-negativeindex=[num for num in index if NOxTheoryppm[num]<NOxActual[num]]
+positiveindex=[num for num in index if NOxTheoryppm[num]>=NOxActual[num]] #entries that have positive divergence
+negativeindex=[num for num in index if NOxTheoryppm[num]<NOxActual[num]] #entries that have positive divergence
 
 Tadiab1=Tadiab[positiveindex[:]]
 tinj1=tinj[positiveindex[:]]
@@ -176,12 +166,10 @@ print(fitCovarneg)
 EINOxTheorypos= EINOxpredict((Tadiab[positiveindex],tinj[positiveindex]), fitParamspos[0], fitParamspos[1], fitParamspos[2])
 EINOxTheoryneg= EINOxpredict((Tadiab[negativeindex],tinj[negativeindex]), fitParamsneg[0], fitParamsneg[1], fitParamsneg[2])
 
-
-#%%Curve Fit2
+#%%Curve Fit2 (Updated Model)
 def NOxpredict2(X, a, b, c,d):
     Tadiab, tinj, xo2 =X
     return a*(Tadiab**b)*(tinj**c)*(xo2**d)
-
 
 p1=200, 1, 2.5, 10
 
@@ -189,14 +177,12 @@ fitParams2, fitCovar2= curve_fit(NOxpredict2, (Tadiab[:10000], tinj[:10000],xo2[
 print(fitParams2)
 EINOxTheory= NOxpredict2((Tadiab[10000:28000],tinj[10000:28000],xo2[10000:28000]), fitParams2[0], fitParams2[1], fitParams2[2],fitParams2[3])
 
-
 #%% EINOx to NOxppm
 NOxTheoryppm=[]
 molesNOx= EINOxTheory/38 * Fuelconskgph[train] #moles per hour
 totalproductmoles= (Nn2[train] + No2[train] + 13.883 + 12.026)* Fuelconskgph[train]/MW_fuel +molesNOx #moles per hour
 NOxTheoryppm= molesNOx/totalproductmoles*1e6
-
-SCRingpsTheory= EINOxTheory/ 3600 * Fuelconskgph[train]
+SCRingpsTheory= EINOxTheory/ 3600 * Fuelconskgph[train] #Selective Catalytic Reduction
 
 #%% EINOx to NOxppm refined
 molesNOx= EINOxTheorypos/38 * Fuelconskgph[positiveindex] #moles per hour
@@ -210,9 +196,6 @@ molesNOx= EINOxTheoryneg/38 * Fuelconskgph[negativeindex] #moles per hour
 totalproductmoles= (Nn2[negativeindex] + No2[negativeindex] + 13.883 + 12.026)* Fuelconskgph[negativeindex]/MW_fuel +molesNOx #moles per hour
 NOxTheoryppm3= molesNOx/totalproductmoles*1e6
 
-
-
-
 #%% anomalous plot
 plt.rcParams.update({'font.size': 45})
 plt.figure(figsize=(35,35))
@@ -224,9 +207,8 @@ plt.title('Divergent windows with summationThreshold=50 ppm',fontsize=45)
 plt.xlabel('NOx Observed/ppm)', fontsize=45)
 plt.ylabel('NOx Baseline Prediction /ppm', fontsize=45)
 
-#%%
+#%% Non-Anamalous plot
 plt.figure(figsize=(25,25))
-
 plt.scatter(NOxActual[notindex], NOxTheoryppm[notindex], c=abs(NOxTheoryppm[notindex]-NOxActual[notindex])/NOxTheoryppm[notindex]*100, cmap='viridis' )
 plt.title('50 Abs Error threshold 100k dataset non-anomalous points',fontsize=35)
 plt.plot(range(0,int(1000), 1),range(0,int(1000), 1))
@@ -237,7 +219,7 @@ plt.ylim(0, 1500)
 plt.xlabel('NOxActual Anomalous /ppm)', fontsize=35)
 plt.ylabel('NOxTheory baseline anomalous /ppm', fontsize=35)
 
-#%% EINOx to NOxppm actual troubleshoot
+#%% EINOx to NOxppm actual troubleshooting
 molesNOx= EINOxActual/38 * Fuelconskgph #moles per hr
 totalproductmoles= (Nn2 + No2 + 13.883 + 12.026)* Fuelconskgph/MW_fuel #moles per hour
 NOxActualcalcppm= molesNOx/totalproductmoles*1e13
@@ -246,7 +228,7 @@ NOxActualcalcppm= molesNOx/totalproductmoles*1e13
 plt.figure(figsize=(25,25))
 plt.scatter(NOxActual, NOxActualcalcppm)
 
-#%% Compare Plot
+#%% Compare Plot for EINOx
 plt.figure(figsize=(15,15))
 plt.scatter(EINOxActual[:], EINOxTheory, c=abs(EINOxTheory-EINOxActual[:])/EINOxTheory, cmap='viridis' )
 plt.xlabel('EINOxActual (g NOx /kg fuel)', fontsize=35)
@@ -256,6 +238,7 @@ plt.colorbar()
 # plt.ylim(0, 4e-6)
 plt.plot(np.linspace(0,35, 10),np.linspace(0,35, 10))
 
+#Compare Plot for NOxppm
 plt.figure(figsize=(25,25))
 plt.scatter(NOxActual[:], NOxTheoryppm[:], c=abs(NOxTheoryppm[:]-NOxActual[:])/NOxActual[:], cmap='viridis' )
 plt.xlabel('NOxActual ppm', fontsize=35)
@@ -265,6 +248,7 @@ plt.xlim(0, 1500)
 plt.ylim(0, 1500)
 plt.plot(range(0,int(1000), 1),range(0,int(1000), 1))
 
+#Compare Plot for SCRingps
 plt.figure(figsize=(15,15))
 plt.scatter(SCRingps[:], SCRingpsTheory, c=abs(SCRingpsTheory-SCRingps[:])/SCRingpsTheory, cmap='viridis' )
 plt.xlabel('SCRin Actual gps', fontsize=35)
@@ -274,11 +258,11 @@ plt.colorbar()
 # plt.ylim(0, 1500)
 plt.plot(np.linspace(0,0.25, 10),np.linspace(0,0.25, 10))
 
-#%% plot NOx ppm
+#%% Scatter plot for NOx ppm
 plt.rcParams.update({'font.size': 45})
 plt.figure(figsize=(35,35))
 plt.scatter(NOxActual[:], NOxTheoryppm[:], c=abs(NOxTheoryppm[:]-NOxActual[:]), cmap='viridis' )
-plt.title(' Baseline prediction for 100k', fontsize=35)
+plt.title('Baseline prediction for 100k', fontsize=35)
 plt.xlabel('NOx Observed /ppm', fontsize=45)
 plt.ylabel('NOx Predicted /ppm', fontsize=45)
 cbar=plt.colorbar()
@@ -300,7 +284,7 @@ plt.xlim(0, 1000)
 plt.ylim(0, 1000)
 plt.plot(range(0,int(1000), 1),range(0,int(1000), 1))
 
-#%% plot NOx ppm after refinement
+#%% plot NOx ppm after pos-neg refinement
 # plt.rcParams.update({'font.size': 45})
 # plt.figure(figsize=(35,35))
 NOxActualnew = np.append(NOxActual[positiveindex],NOxActual[negativeindex])
@@ -333,7 +317,7 @@ plt.grid(True, which='both', axis='both')
 plt.xlabel('Time')
 plt.ylabel('Wheelspeed')
 
-#%% Plots
+#%% Data Exploration
 time=np.arange(1,61)
 plt.rcParams.update({'font.size': 18})
 plt.style.use('seaborn-ticks')
@@ -369,13 +353,11 @@ ax[8].set_ylabel('Rail MPa')
 ax[8].grid()
 ax[8].minorticks_on()
 
-#%%
+#%% 
 plt.rcParams.update({'font.size': 18})
 plt.style.use('seaborn-ticks')
 fig1,ax1=plt.subplots(7, sharex=True, sharey=False, figsize=(15,25))
-
 ax1[0].plot(time,xo2)
-
 ax1[0].set_ylabel('xO2')
 ax1[0].grid()
 ax1[0].minorticks_on()
@@ -403,19 +385,19 @@ ax1[6].plot(time, NOxActual)
 ax1[6].set_ylabel('NOx Actual ppm')
 ax1[6].grid()
 ax1[6].minorticks_on()
-#%%
+
+#%% Data Visualization to find the time delay delta
 time=np.arange(1,61)
 plt.rcParams.update({'font.size': 20})
 plt.style.use('seaborn-ticks')
 fig1,ax1=plt.subplots(4, sharex=True, sharey=False, figsize=(15,12))
 
 ax1[0].set_title('Data Visualization ',fontsize=20)
-
 ax1[0].plot(time,NOxActual)
-
 ax1[0].set_ylabel('NOx Observed /ppm')
 ax1[0].grid()
 ax1[0].minorticks_on()
+
 ax1[1].plot(time,tinj)
 ax1[1].set_ylabel('$t_{comb}$ /s')
 ax1[1].grid()
@@ -424,21 +406,13 @@ ax1[2].plot(time,Tadiab)
 ax1[2].set_ylabel('$T_{adiab}$ /K')
 ax1[2].grid()
 ax1[2].minorticks_on()
-# ax1[3].plot(time, EINOxActual)
-# ax1[3].set_ylabel('EINOx Actual gNOx/kgFuel')
-# ax1[3].grid()
-# ax1[3].minorticks_on()
-# ax1[4].plot(time, eqratio)
-# ax1[4].set_ylabel('Equivalence Ratio')
-# ax1[4].grid()
-# ax1[4].minorticks_on()
 
 ax1[3].plot(time,Wheelspeed)
 ax1[3].set_ylabel('Wheelspeed /kmph')
 ax1[3].grid()
 ax1[3].minorticks_on()
-
 ax1[3].set_xlabel('Time /s')
+
 #%% Test Plots
 fig2,ax2=plt.subplots(2, sharex=True, sharey=False, figsize=(15,15))
 plt.rcParams.update({'font.size': 25})
@@ -451,14 +425,12 @@ ax2[1].set_ylabel('EINOx Actual')
 ax2[1].grid()
 ax2[1].minorticks_on()
 
-#%% R2 value
+#%% Predictive Accuracy Metrics- R2, RMSE, MAE
 
 r_value= scipy.stats.linregress(NOxActual[train],NOxTheoryppm[:])
-
 R2value=r_value[2]**2
 print(R2value)
 PValue=r_value[3]
-
 rmse=np.sqrt(mean_squared_error(NOxActual[train],NOxTheoryppm[:]))
 print(rmse)
 mae=mean_absolute_error(NOxActual[train],NOxTheoryppm[:])
